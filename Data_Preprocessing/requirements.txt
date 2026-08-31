@@ -1,0 +1,5 @@
+numpy==1.26.4
+opencv-python
+tqdm
+scipy==1.11.4
+h5py
