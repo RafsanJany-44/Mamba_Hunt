@@ -1,4 +1,5 @@
-# Mamba Hunt: Simplified RhythmMamba Baseline
+# Mamba Hunt: Simplified RhythmMamba Baseline (Version 0.0.0)
+
 
 Mamba Hunt contains the code required to train and evaluate RhythmMamba using the following datasets:
 
