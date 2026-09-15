@@ -198,11 +198,10 @@ Splits:
 Run:
 
 ```bash
-python parity_check.py
-
 CUDA_VISIBLE_DEVICES=1 python train_pure.py 2>&1 \
   | tee results/logs/PURE_training.log
-
+```
+```bash
 CUDA_VISIBLE_DEVICES=0 python train_ubfc.py 2>&1 \
   | tee results/logs/UBFC_training.log
 ```
