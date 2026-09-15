@@ -1,4 +1,4 @@
-"""Train all new Stage-2 loss variants for one RhythmMamba source dataset."""
+"""Train the controlled A4 L3/L4 loss-weight tuning suite."""
 
 from __future__ import annotations
 
@@ -16,12 +16,12 @@ from tqdm import tqdm
 
 from augmentation import OfficialAugmentation
 from cross_settings import PURE_CROSS_MATCHED, UBFC_CROSS_MATCHED
-from dataset_stage1 import create_stage1_loaders
+from dataset_pure_a4 import create_pure_a4_loaders
+from dataset_ubfc_a4 import create_ubfc_a4_loaders
 from loss_suite_stage2 import (
     CONCENTRATION_HALF_WIDTH_BPM,
     HARMONIC_BAND_HALF_WIDTH_BPM,
     HARMONIC_RATIOS,
-    LOSS_VARIANTS,
     LossSuiteCriterion,
     build_loss_variants,
 )
@@ -33,26 +33,29 @@ MAX_EPOCHS = 100
 MINIMUM_EPOCHS = 30
 EARLY_STOPPING_PATIENCE = 10
 MINIMUM_IMPROVEMENT = 0.0
-VARIANT_ORDER = (
-    "L1_OFFICIAL_HARMONIC",
-    "L2_HARMONIC_REPLACE",
-    "L3_CONCENTRATION",
-    "L4_CONCENTRATION_HARMONIC",
+WEIGHT_TUNING_JOBS = (
+    ("L3_C010", "L3_CONCENTRATION", 0.10, 0.0),
+    ("L3_C025", "L3_CONCENTRATION", 0.25, 0.0),
+    ("L3_C050", "L3_CONCENTRATION", 0.50, 0.0),
+    ("L4_C025_H100", "L4_CONCENTRATION_HARMONIC", 0.25, 1.0),
+    ("L4_C025_H200", "L4_CONCENTRATION_HARMONIC", 0.25, 2.0),
+    ("L4_C050_H100", "L4_CONCENTRATION_HARMONIC", 0.50, 1.0),
+    ("L4_C050_H200", "L4_CONCENTRATION_HARMONIC", 0.50, 2.0),
+    ("L4_C100_H200", "L4_CONCENTRATION_HARMONIC", 1.00, 2.0),
 )
-AUGMENTATION_ORDER = ("A0", "A2")
 
-# Change only this dictionary for a later weight-tuning run, or pass a
-# weight_overrides dictionary to train_source/train_one.
-LOSS_WEIGHT_OVERRIDES = {
-    "pearson": 0.2,
-    "ce": 1.0,
-    "concentration": 1.0,
-    "harmonic": 1.0,
-}
+
+def job_weights(concentration_weight: float, harmonic_weight: float):
+    return {
+        "pearson": 0.2,
+        "ce": 1.0,
+        "concentration": float(concentration_weight),
+        "harmonic": float(harmonic_weight),
+    }
 
 
 def model_directory(name: str) -> Path:
-    return OUTPUT_ROOT / "models" / "loss_suite_stage2" / name
+    return OUTPUT_ROOT / "models" / "a4_loss_weight_tuning" / name
 
 
 def best_checkpoint(name: str) -> Path:
@@ -141,19 +144,16 @@ def validate(model, loader, criterion, epoch: int) -> tuple[float, ...]:
 def train_one(
     source: Experiment,
     source_name: str,
-    augmentation_name: str,
+    experiment_code: str,
     variant_code: str,
-    weight_overrides: dict[str, float] | None = None,
+    weight_overrides: dict[str, float],
 ) -> Path:
-    if augmentation_name not in AUGMENTATION_ORDER:
-        raise ValueError("augmentation_name must be A0 or A2")
     variants = build_loss_variants(weight_overrides)
     if variant_code not in variants:
         raise ValueError(f"Unknown loss variant: {variant_code}")
 
-    use_offline = augmentation_name == "A2"
     variant = variants[variant_code]
-    name = f"{source_name}_{augmentation_name}_{variant_code}"
+    name = f"{source_name}_A4_{experiment_code}"
     directory = model_directory(name)
     best = best_checkpoint(name)
     completion = completion_path(name)
@@ -161,6 +161,23 @@ def train_one(
         payload = json.loads(completion.read_text(encoding="utf-8"))
         if payload.get("status") != "PASSED":
             raise RuntimeError(f"Invalid completion marker: {completion}")
+        expected = {
+            "loss_variant": variant.code,
+            "pearson_weight": variant.pearson_weight,
+            "ce_weight": variant.ce_weight,
+            "concentration_weight": variant.concentration_weight,
+            "harmonic_weight": variant.harmonic_weight,
+            "seed": SEED,
+        }
+        mismatches = {
+            key: (payload.get(key), value)
+            for key, value in expected.items()
+            if payload.get(key) != value
+        }
+        if mismatches:
+            raise RuntimeError(
+                f"Completed model configuration mismatch for {name}: {mismatches}"
+            )
         print(f"SKIPPING VERIFIED COMPLETED MODEL: {name}")
         print(f"Best checkpoint: {best}")
         return best
@@ -171,9 +188,12 @@ def train_one(
         )
 
     set_reproducible(SEED)
-    training_loader, validation_loader = create_stage1_loaders(
-        source, source_name, use_offline
-    )
+    if source_name == "PURE":
+        training_loader, validation_loader = create_pure_a4_loaders(source)
+    elif source_name == "UBFC":
+        training_loader, validation_loader = create_ubfc_a4_loaders(source)
+    else:
+        raise ValueError("source_name must be PURE or UBFC")
     model = build_model()
     criterion = LossSuiteCriterion(variant_code, weight_overrides)
     official_augmentation = OfficialAugmentation(fs=FS, diff_flag=False)
@@ -191,12 +211,15 @@ def train_one(
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "experiment": name,
         "source_dataset": source_name,
-        "augmentation": augmentation_name,
+        "augmentation": "A4",
         "official_augmentation": True,
-        "offline_augmentation": use_offline,
-        "offline_probability": 0.5 if use_offline else 0.0,
+        "offline_augmentation": True,
+        "offline_probability": 0.5,
+        "offline_variant_probability_each": 0.125,
+        "offline_variants": ["jpeg", "blur", "gamma", "contrast"],
         "online_rgb_gain": False,
         "loss_variant": variant.code,
+        "weight_tuning_code": experiment_code,
         "loss_description": variant.description,
         "pearson_weight": variant.pearson_weight,
         "ce_weight": variant.ce_weight,
@@ -228,7 +251,7 @@ def train_one(
     print(f"Loss                 : {variant.description}")
     print(f"Training clips       : {len(training_loader.dataset)}")
     print(f"Clean validation     : {len(validation_loader.dataset)}")
-    print(f"Augmentation         : {augmentation_name}")
+    print("Augmentation         : A4 (50% original; 12.5% each variant)")
     print(f"Maximum epochs       : {MAX_EPOCHS}")
     print(f"Minimum epochs       : {MINIMUM_EPOCHS}")
     print(f"Early-stop patience  : {EARLY_STOPPING_PATIENCE}")
@@ -243,15 +266,22 @@ def train_one(
         model.train()
         sums = [0.0] * 5
         clip_count = 0
-        original_count = 0
-        offline_count = 0
+        selection_counts = {
+            "original": 0,
+            "jpeg": 0,
+            "blur": 0,
+            "gamma": 0,
+            "contrast": 0,
+        }
         progress = tqdm(training_loader, desc=f"{name} epoch {epoch}", ncols=112)
         for batch in progress:
             data = batch[0].float()
             label = batch[1].float()
             kinds = batch[4]
-            original_count += sum(kind == "original" for kind in kinds)
-            offline_count += sum(kind == "offline" for kind in kinds)
+            for kind in kinds:
+                if kind not in selection_counts:
+                    raise RuntimeError(f"Unexpected A4 source kind: {kind}")
+                selection_counts[kind] += 1
             data, label = official_augmentation(data, label, batch[2], batch[3])
             data = data.to(DEVICE)
             label = label.to(DEVICE)
@@ -296,8 +326,15 @@ def train_one(
                 "validation_concentration_loss": f"{valid_values[3]:.10f}",
                 "validation_harmonic_loss": f"{valid_values[4]:.10f}",
                 "learning_rate": f"{scheduler.get_last_lr()[0]:.12g}",
-                "original_selected": original_count,
-                "offline_selected": offline_count,
+                "original_selected": selection_counts["original"],
+                "jpeg_selected": selection_counts["jpeg"],
+                "blur_selected": selection_counts["blur"],
+                "gamma_selected": selection_counts["gamma"],
+                "contrast_selected": selection_counts["contrast"],
+                "offline_selected": sum(
+                    selection_counts[key]
+                    for key in ("jpeg", "blur", "gamma", "contrast")
+                ),
                 "is_best": improved,
                 "epochs_without_improvement": epochs_without_improvement,
             }
@@ -308,7 +345,7 @@ def train_one(
             f"valid={valid_values[0]:.8f} | "
             f"P/CE/C/H={valid_values[1]:.5f}/{valid_values[2]:.5f}/"
             f"{valid_values[3]:.5f}/{valid_values[4]:.5f} | "
-            f"best={improved} | original/offline={original_count}/{offline_count}"
+            f"best={improved} | selections={selection_counts}"
         )
         if (
             epoch + 1 >= MINIMUM_EPOCHS
@@ -348,10 +385,7 @@ def train_one(
     return best
 
 
-def train_source(
-    source_name: str,
-    weight_overrides: dict[str, float] | None = None,
-) -> None:
+def train_source(source_name: str) -> None:
     source_name = source_name.upper()
     if source_name == "PURE":
         source = PURE_CROSS_MATCHED
@@ -360,27 +394,28 @@ def train_source(
     else:
         raise ValueError("source_name must be PURE or UBFC")
 
-    jobs = [
-        (variant_code, augmentation_name)
-        for variant_code in VARIANT_ORDER
-        for augmentation_name in AUGMENTATION_ORDER
-    ]
+    jobs = list(WEIGHT_TUNING_JOBS)
     successes: list[tuple[str, Path]] = []
     failures: list[dict[str, str]] = []
     suite_started = time.perf_counter()
 
-    for job_number, (variant_code, augmentation_name) in enumerate(jobs, start=1):
-        name = f"{source_name}_{augmentation_name}_{variant_code}"
+    for job_number, job in enumerate(jobs, start=1):
+        experiment_code, variant_code, concentration_weight, harmonic_weight = job
+        weights = job_weights(concentration_weight, harmonic_weight)
+        name = f"{source_name}_A4_{experiment_code}"
         print("#" * 88)
-        print(f"{source_name} LOSS SUITE — MODEL {job_number}/{len(jobs)}: {name}")
+        print(
+            f"{source_name} A4 WEIGHT TUNING — "
+            f"MODEL {job_number}/{len(jobs)}: {name}"
+        )
         print("#" * 88)
         try:
             path = train_one(
                 source,
                 source_name,
-                augmentation_name,
+                experiment_code,
                 variant_code,
-                LOSS_WEIGHT_OVERRIDES if weight_overrides is None else weight_overrides,
+                weights,
             )
             successes.append((name, path))
         except Exception as error:
@@ -398,10 +433,23 @@ def train_source(
             print("The suite will continue to the next model.")
             print("!" * 88)
 
-    suite_directory = OUTPUT_ROOT / "models" / "loss_suite_stage2"
+    suite_directory = OUTPUT_ROOT / "models" / "a4_loss_weight_tuning"
     suite_directory.mkdir(parents=True, exist_ok=True)
     suite_summary = {
         "source_dataset": source_name,
+        "augmentation": "A4",
+        "seed": SEED,
+        "jobs": [
+            {
+                "experiment_code": code,
+                "loss_variant": variant,
+                "pearson_weight": 0.2,
+                "ce_weight": 0.0,
+                "concentration_weight": concentration,
+                "harmonic_weight": harmonic,
+            }
+            for code, variant, concentration, harmonic in jobs
+        ],
         "completed_utc": datetime.now(timezone.utc).isoformat(),
         "planned_models": len(jobs),
         "successful_models": len(successes),
@@ -411,11 +459,11 @@ def train_source(
         "suite_hours": (time.perf_counter() - suite_started) / 3600.0,
         "status": "PASSED" if not failures else "COMPLETED_WITH_FAILURES",
     }
-    summary_path = suite_directory / f"{source_name}_loss_suite_summary.json"
+    summary_path = suite_directory / f"{source_name}_A4_weight_tuning_summary.json"
     atomic_json(summary_path, suite_summary)
 
     print("=" * 88)
-    print(f"{source_name} LOSS SUITE FINISHED")
+    print(f"{source_name} A4 LOSS-WEIGHT TUNING FINISHED")
     print("=" * 88)
     print(f"Successful models: {len(successes)}/{len(jobs)}")
     print(f"Failed models    : {len(failures)}/{len(jobs)}")

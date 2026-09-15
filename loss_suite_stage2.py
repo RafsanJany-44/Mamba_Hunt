@@ -30,40 +30,77 @@ class LossVariant:
     harmonic_weight: float
 
 
-LOSS_VARIANTS = {
+DEFAULT_LOSS_WEIGHTS = {
+    "pearson": 0.2,
+    "ce": 1.0,
+    "concentration": 1.0,
+    "harmonic": 1.0,
+}
+
+
+def build_loss_variants(
+    weight_overrides: dict[str, float] | None = None,
+) -> dict[str, LossVariant]:
+    """Build L1-L4 from one reusable weight configuration."""
+    weights = DEFAULT_LOSS_WEIGHTS.copy()
+    if weight_overrides:
+        unknown = sorted(set(weight_overrides) - set(weights))
+        if unknown:
+            raise ValueError(f"Unknown loss-weight names: {unknown}")
+        weights.update({key: float(value) for key, value in weight_overrides.items()})
+    if any(value < 0.0 for value in weights.values()):
+        raise ValueError("Loss weights must be non-negative")
+
+    return {
+    "L1_OFFICIAL_HARMONIC": LossVariant(
+        code="L1_OFFICIAL_HARMONIC",
+        description=(
+            f"{weights['pearson']:g} Pearson + {weights['ce']:g} CE + "
+            f"{weights['harmonic']:g} harmonic"
+        ),
+        pearson_weight=weights["pearson"],
+        ce_weight=weights["ce"],
+        concentration_weight=0.0,
+        harmonic_weight=weights["harmonic"],
+    ),
     "L2_HARMONIC_REPLACE": LossVariant(
         code="L2_HARMONIC_REPLACE",
-        description="0.2 Pearson + 0.1 harmonic; CE removed",
-        pearson_weight=0.2,
+        description=(
+            f"{weights['pearson']:g} Pearson + {weights['harmonic']:g} "
+            "harmonic; CE removed"
+        ),
+        pearson_weight=weights["pearson"],
         ce_weight=0.0,
         concentration_weight=0.0,
-        harmonic_weight=0.1,
+        harmonic_weight=weights["harmonic"],
     ),
     "L3_CONCENTRATION": LossVariant(
         code="L3_CONCENTRATION",
-        description="0.2 Pearson + 1.0 concentration; CE removed",
-        pearson_weight=0.2,
+        description=(
+            f"{weights['pearson']:g} Pearson + "
+            f"{weights['concentration']:g} concentration; CE removed"
+        ),
+        pearson_weight=weights["pearson"],
         ce_weight=0.0,
-        concentration_weight=1.0,
+        concentration_weight=weights["concentration"],
         harmonic_weight=0.0,
     ),
     "L4_CONCENTRATION_HARMONIC": LossVariant(
         code="L4_CONCENTRATION_HARMONIC",
-        description="0.2 Pearson + 1.0 concentration + 0.1 harmonic; CE removed",
-        pearson_weight=0.2,
+        description=(
+            f"{weights['pearson']:g} Pearson + "
+            f"{weights['concentration']:g} concentration + "
+            f"{weights['harmonic']:g} harmonic; CE removed"
+        ),
+        pearson_weight=weights["pearson"],
         ce_weight=0.0,
-        concentration_weight=1.0,
-        harmonic_weight=0.1,
+        concentration_weight=weights["concentration"],
+        harmonic_weight=weights["harmonic"],
     ),
-    "L5_CE_CONCENTRATION": LossVariant(
-        code="L5_CE_CONCENTRATION",
-        description="0.2 Pearson + 1.0 CE + 1.0 concentration",
-        pearson_weight=0.2,
-        ce_weight=1.0,
-        concentration_weight=1.0,
-        harmonic_weight=0.0,
-    ),
-}
+    }
+
+
+LOSS_VARIANTS = build_loss_variants()
 
 
 def _band_power(
@@ -162,11 +199,16 @@ def spectral_components(
 class LossSuiteCriterion(nn.Module):
     """Compose Pearson, CE, concentration, and harmonic terms by variant."""
 
-    def __init__(self, variant_code: str):
+    def __init__(
+        self,
+        variant_code: str,
+        weight_overrides: dict[str, float] | None = None,
+    ):
         super().__init__()
-        if variant_code not in LOSS_VARIANTS:
+        variants = build_loss_variants(weight_overrides)
+        if variant_code not in variants:
             raise ValueError(f"Unknown loss variant: {variant_code}")
-        self.variant = LOSS_VARIANTS[variant_code]
+        self.variant = variants[variant_code]
         self.pearson = NegativePearsonLoss()
 
     def components(

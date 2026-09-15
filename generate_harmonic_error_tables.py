@@ -19,7 +19,7 @@ import re
 from pathlib import Path
 
 
-SCRIPT_VERSION = "2026-09-01-fixed-html-versioning"
+SCRIPT_VERSION = "2026-09-10-added-one-third-subharmonic"
 
 
 # ---------------------------------------------------------------------------
@@ -31,6 +31,7 @@ FAILURE_COLUMNS = {
     "super_harmonic_1p5x": "harmonic_1p5x_count",
     "super_harmonic_2x": "harmonic_2x_count",
     "sub_harmonic_half": "harmonic_0p5x_count",
+    "sub_harmonic_third": "harmonic_0p333x_count",
     "large_error": "other_large_error_count",
 }
 
@@ -71,6 +72,7 @@ OUTPUT_COLUMNS = [
     "harmonic_1p5x_count",
     "harmonic_2x_count",
     "harmonic_0p5x_count",
+    "harmonic_0p333x_count",
     "other_large_error_count",
 ]
 
@@ -388,6 +390,7 @@ const ERROR_FIELDS = [
   {{ key: 'harmonic_1p5x_count',     label: '1.5\u00d7' }},
   {{ key: 'harmonic_2x_count',       label: '2\u00d7'   }},
   {{ key: 'harmonic_0p5x_count',     label: '0.5\u00d7' }},
+  {{ key: 'harmonic_0p333x_count',   label: '1/3\u00d7' }},
   {{ key: 'other_large_error_count', label: 'Other'  }},
 ];
 
@@ -396,6 +399,7 @@ const COLORS = {{
   '1.5\u00d7': '#e67e22',
   '2\u00d7':   '#e74c3c',
   '0.5\u00d7': '#8e44ad',
+  '1/3\u00d7': '#2980b9',
   'Other':     '#7f8c8d',
 }};
 // Lighter tints (used for PRISM, paired with a diagonal pattern)
@@ -403,6 +407,7 @@ const COLORS_LIGHT = {{
   '1.5\u00d7': '#f0b27a',
   '2\u00d7':   '#f1948a',
   '0.5\u00d7': '#bb8fce',
+  '1/3\u00d7': '#85c1e9',
   'Other':     '#b2bec3',
 }};
 
@@ -637,10 +642,13 @@ function renderComp3() {{
     {{ key: 'PRISM',    label: 'PRISM (windows)' }},
   ];
 
-  const subCols = ['Total', 'Correct', '1.5\u00d7', '2\u00d7', '0.5\u00d7', 'Other'];
+  const subCols = [
+    'Total', 'Correct', '1.5\u00d7', '2\u00d7', '0.5\u00d7', '1/3\u00d7', 'Other'
+  ];
   const subKeys = [
     'total_count', 'correct_count', 'harmonic_1p5x_count',
-    'harmonic_2x_count', 'harmonic_0p5x_count', 'other_large_error_count',
+    'harmonic_2x_count', 'harmonic_0p5x_count',
+    'harmonic_0p333x_count', 'other_large_error_count',
   ];
 
   // --- header ---
