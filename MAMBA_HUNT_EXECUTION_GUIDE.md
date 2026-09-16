@@ -183,6 +183,20 @@ h5py
 The complete project additionally imports PyTorch, `mamba_ssm`, `timm`, `einops`, and Plotly. The source snapshot does not contain a verified root-level environment lock file, so do not claim that a fresh Windows/Linux installation is reproducible from this archive alone. On the current machine, use the existing `mamba_hunting` environment.
 
 ## 7. Experiment execution map
+| Experiment | File to modify | Variable |
+|---|---|---|
+| Original PURE/UBFC baseline | `settings.py` | `EPOCHS = 30` |
+| Cross-matched PURE/UBFC | `cross_trainer.py` | Check its epoch loop/configuration |
+| Stage-1 A1/A2/A3 | `trainer_augmentation_stage1.py` | `MAX_EPOCHS = 60` |
+| Harmonic-loss experiment | `trainer_harmonic_loss.py` | `MAX_EPOCHS = 100` |
+| Stage-2 loss suite | `trainer_loss_suite.py` | `MAX_EPOCHS = 100` |
+| Harmonic-ranking experiment | `trainer_harmonic_rank.py` | `MAX_EPOCHS = 100` |
+| UBFC A2 multi-seed | `trainer_ubfc_a2_multiseed.py` | `MAX_EPOCHS = 100` |
+| PURE A4 L0 | `train_pure_a4_l0_seed100.py` | `MAX_EPOCHS = 100` |
+| UBFC A4 L0 | `train_ubfc_a4_l0_seed100.py` | `MAX_EPOCHS = 100` |
+| A4 L1–L4 | `trainer_a4_loss_suite.py` | `MAX_EPOCHS = 100` |
+| A4 weight tuning | `trainer_a4_loss_weight_tuning.py` | `MAX_EPOCHS = 100` |
+| Final A4 multi-seed | `trainer_a4_final_multiseed.py` | `MAX_EPOCHS = 100` |
 
 The following sections are ordered historically. Each training section states the checkpoint location required by its evaluation.
 
@@ -319,7 +333,7 @@ results/evaluation_protocols_ubfc_seed_stability/
 ### 7.6 Stage 1: A1/A2/A3 augmentation ablation
 
 First generate one deterministic offline variant per training clip for PURE and UBFC:
-
+<font color = red> <b> [Do not need to RUN. Its already done] </b></font>
 ```bash
 python generate_pure_offline_augmentation.py
 python generate_ubfc_offline_augmentation.py
@@ -459,6 +473,7 @@ results/evaluation_protocols_ubfc_a2_multiseed/
 ### 7.11 A4 cache generation
 
 A4 creates four offline versions of every training clip: JPEG, blur, gamma, and contrast.
+<font color = red> <b> [Do not need to RUN. Its already done] </b></font>
 
 ```bash
 python generate_pure_a4_offline_augmentation.py
